@@ -26,6 +26,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -227,7 +228,11 @@ function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-  // Forward proxy and CA settings so containers can reach external services
+  // Forward proxy and CA settings so containers can reach external services.
+  // In Docker-in-Docker environments, the host proxy (host.docker.internal:3128)
+  // may not be reachable from nested containers. If PROXY_RELAY_PORT is set,
+  // rewrite proxy URLs to use the docker0 bridge IP with the relay port.
+  const proxyRelayPort = process.env.PROXY_RELAY_PORT;
   const caCertEnvVars = [
     'NODE_EXTRA_CA_CERTS',
     'SSL_CERT_FILE',
@@ -253,10 +258,18 @@ function buildContainerArgs(
           ? `${val},host.docker.internal`
           : 'host.docker.internal';
         args.push('-e', `${envVar}=${extra}`);
+      } else if (proxyRelayPort && (envVar.includes('PROXY') || envVar.includes('proxy')) && !envVar.includes('NO_')) {
+        // Rewrite proxy URL to use docker0 bridge relay
+        args.push('-e', `${envVar}=http://172.17.0.1:${proxyRelayPort}`);
       } else {
         args.push('-e', `${envVar}=${process.env[envVar]}`);
       }
     }
+  }
+
+  // Pass GIT_SSL_NO_VERIFY for MITM proxy environments
+  if (proxyRelayPort) {
+    args.push('-e', 'GIT_SSL_NO_VERIFY=1');
   }
 
   // Mount CA certificate into container if NODE_EXTRA_CA_CERTS is set.
@@ -274,6 +287,14 @@ function buildContainerArgs(
       containerPath: '/workspace/ca-cert',
       readonly: true,
     });
+  }
+
+  // Forward MCP-related env vars so container MCP servers can access external services.
+  // These are read from .env (not process.env) to follow NanoClaw's secrets pattern.
+  const mcpEnvKeys = ['PRD_WIKIJS_HOST', 'PRD_WIKIJS_TOKEN', 'GITHUB_TOKEN'];
+  const mcpEnv = readEnvFile(mcpEnvKeys);
+  for (const [key, value] of Object.entries(mcpEnv)) {
+    args.push('-e', `${key}=${value}`);
   }
 
   // Route API traffic through the credential proxy (containers never see real secrets)

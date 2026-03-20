@@ -30,7 +30,21 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     curl \
     git \
+    python3 \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+# Install uv (Python package manager, provides uvx)
+# Download binary directly — handles MITM proxy with --insecure
+ARG TARGETARCH
+RUN ARCH=$([ "$(dpkg --print-architecture)" = "arm64" ] && echo "aarch64" || echo "x86_64") && \
+    curl -LsSf --insecure -o /tmp/uv.tar.gz "https://github.com/astral-sh/uv/releases/latest/download/uv-${ARCH}-unknown-linux-gnu.tar.gz" && \
+    tar xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1 && \
+    rm /tmp/uv.tar.gz && \
+    uv --version
+
+# Install openssh-client for git+ssh:// support
+RUN apt-get update && apt-get install -y openssh-client && rm -rf /var/lib/apt/lists/*
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
@@ -68,7 +82,7 @@ RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/
 # Container input (prompt, group info) is passed via stdin JSON.
 # Credentials are injected by the host's credential proxy — never passed here.
 # Follow-up messages arrive via IPC files in /workspace/ipc/input/
-RUN printf '#!/bin/bash\nset -e\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\ncat > /tmp/input.json\nnode /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN printf '#!/bin/bash\nset -e\n# Rewrite git+ssh:// to HTTPS with GITHUB_TOKEN for private repos\nif [ -n "$GITHUB_TOKEN" ]; then\n  git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"\n  git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"\nfi\ncd /app && npx tsc --outDir /tmp/dist 2>&1 >&2\nln -s /app/node_modules /tmp/dist/node_modules\nchmod -R a-w /tmp/dist\ncat > /tmp/input.json\nnode /tmp/dist/index.js < /tmp/input.json\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Set ownership to node user (non-root) for writable directories
 RUN chown -R node:node /workspace && chmod 777 /home/node

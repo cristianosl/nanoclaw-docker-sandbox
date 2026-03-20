@@ -407,7 +407,8 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__wikijs__*'
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -423,6 +424,24 @@ async function runQuery(
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
         },
+        ...(process.env.PRD_WIKIJS_TOKEN ? {
+          wikijs: {
+            command: 'uvx',
+            args: [
+              '--native-tls',
+              '--from',
+              `mcp-wikijs@git+https://${process.env.GITHUB_TOKEN || ''}@github.com/arcotech-services/at-mcp-catalog-tool.git@develop#subdirectory=wikijs`,
+              'mcp-wikijs',
+            ],
+            env: {
+              PRD_WIKIJS_HOST: process.env.PRD_WIKIJS_HOST || '',
+              PRD_WIKIJS_TOKEN: process.env.PRD_WIKIJS_TOKEN || '',
+              SSL_CERT_FILE: process.env.SSL_CERT_FILE || '',
+              REQUESTS_CA_BUNDLE: process.env.SSL_CERT_FILE || '',
+              GIT_SSL_NO_VERIFY: '1',
+            },
+          },
+        } : {}),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],

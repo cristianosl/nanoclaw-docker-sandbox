@@ -21,6 +21,16 @@ for var in http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY; do
   fi
 done
 
+# Disable strict SSL during build if a proxy is set (handles MITM proxy certs)
+if [ -n "${https_proxy}${HTTPS_PROXY}" ]; then
+  PROXY_ARGS="$PROXY_ARGS --build-arg npm_config_strict_ssl=false"
+fi
+
+# Pass CA cert path for MITM proxy environments
+if [ -n "${NODE_EXTRA_CA_CERTS}" ]; then
+  PROXY_ARGS="$PROXY_ARGS --build-arg NODE_EXTRA_CA_CERTS=${NODE_EXTRA_CA_CERTS}"
+fi
+
 ${CONTAINER_RUNTIME} build $PROXY_ARGS -t "${IMAGE_NAME}:${TAG}" .
 
 echo ""
